@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Airtel Coin Mining</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="https://www.youtube.com/iframe_api"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { background-color: #0b0f19; color: #fff; font-family: sans-serif; margin: 0; padding: 15px; text-align: center; }
+    .card { background: #151c2c; border-radius: 12px; padding: 15px; margin-bottom: 15px; border: 1px solid #222e48; }
+    .coin-val { font-size: 2rem; color: #f59e0b; font-weight: bold; }
+    .usdt-val { color: #10b981; font-size: 1.1rem; }
+    .tap-btn { width: 180px; height: 180px; border-radius: 50%; background: radial-gradient(circle, #f59e0b, #d97706); border: none; color: #fff; font-size: 1.8rem; font-weight: bold; cursor: pointer; margin: 20px auto; box-shadow: 0 0 20px rgba(245, 158, 11, 0.4); }
+    .tap-btn:active { transform: scale(0.95); }
+    .nav { display: flex; justify-content: space-around; position: fixed; bottom: 0; left: 0; right: 0; background: #0f172a; padding: 12px; border-top: 1px solid #1e293b; }
+    .nav button { background: none; border: none; color: #94a3b8; font-weight: bold; cursor: pointer; }
+    .nav button.active { color: #f59e0b; }
+    .section { display: none; margin-bottom: 60px; }
+    .section.active { display: block; }
+    .task-item { display: flex; justify-content: space-between; align-items: center; background: #1e293b; padding: 12px; border-radius: 8px; margin-bottom: 10px; text-align: left; }
+    .btn-action { background: #22c55e; border: none; padding: 8px 12px; color: #fff; border-radius: 6px; font-weight: bold; cursor: pointer; }
+    #player { width: 100%; height: 200px; border-radius: 8px; }
+  </style>
+</head>
+<body>
+
+  <!-- TAP SCREEN -->
+  <div id="tap-screen" class="section active">
+    <div class="card">
+      <div class="coin-val"><span id="coins">0</span> Airtel Coin</div>
+      <div class="usdt-val">≈ $<span id="usdt">0.00</span> USDT</div>
+    </div>
+
+    <button class="tap-btn" id="tapBtn">TAP</button>
+
+    <div>⚡ Energy: <span id="energy">1000</span> / 1000</div>
+  </div>
+
+  <!-- TASKS SCREEN -->
+  <div id="task-screen" class="section">
+    <h3>Watch YouTube & Earn USDT</h3>
+    <div class="card" id="video-card" style="display:none;">
+      <div id="player"></div>
+      <p id="timerText">Watching: 0s</p>
+      <button class="btn-action" id="claimBtn" style="display:none;" onclick="claimVideoReward()">Claim Reward</button>
+    </div>
+    <div id="taskList">Loading tasks...</div>
+  </div>
+
+  <!-- REFERRAL SCREEN -->
+  <div id="refer-screen" class="section">
+    <h3>Invite Friends</h3>
+    <div class="card">
+      <p>Per Refer: +300 Airtel Coins ($0.5 USDT)</p>
+      <input type="text" id="refLink" readonly style="width:100%; padding:8px; background:#0b0f19; color:#fff; border:1px solid #334155; border-radius:5px;">
+    </div>
+  </div>
+
+  <!-- WALLET SCREEN -->
+  <div id="wallet-screen" class="section">
+    <h3>Withdraw Funds</h3>
+    <div class="card">
+      <label>Binance / BEP20 USDT Address:</label>
+      <input type="text" id="walletInput" placeholder="0x..." style="width:100%; padding:10px; margin:10px 0; background:#0b0f19; color:#fff; border:1px solid #334155; border-radius:5px;">
+      <button class="btn-action" style="width:100%;" onclick="saveWallet()">Save Address</button>
+    </div>
+  </div>
+
+  <!-- BOTTOM NAVIGATION -->
+  <div class="nav">
+    <button class="active" onclick="showTab('tap-screen', this)">Tap</button>
+    <button onclick="showTab('task-screen', this)">Task</button>
+    <button onclick="showTab('refer-screen', this)">Refer</button>
+    <button onclick="showTab('wallet-screen', this)">Wallet</button>
+  </div>
+
+  <script>
+    const API_URL = "https://your-render-backend-url.onrender.com"; // Deploy hone ke baad yahan Render URL daalein
+    const tg = window.Telegram.WebApp;
+    tg.expand();
+
+    const telegramId = tg.initDataUnsafe?.user?.id || "123456789";
+    const userName = tg.initDataUnsafe?.user?.first_name || "User";
+
+    let userData = {};
+    let activeTask = null;
+    let watchSeconds = 0;
+    let timerInterval = null;
+    let ytPlayer = null;
+
+    // Initialize App
+    async function initUser() {
+      const res = await fetch(`${API_URL}/api/user`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telegramId, name: userName })
+      });
+      const data = await res.json();
+      userData = data.user;
+      updateUI();
+      document.getElementById('refLink').value = `https://t.me/YourBotName?start=${telegramId}`;
+    }
+
+    function updateUI() {
+      document.getElementById('coins').innerText = userData.airtelCoins || 0;
+      document.getElementById('usdt').innerText = (userData.usdtBalance || 0).toFixed(2);
+      document.getElementById('energy').innerText = userData.energy || 1000;
+      if (userData.walletAddress) document.getElementById('walletInput').value = userData.walletAddress;
+    }
+
+    // Tap Handler
+    document.getElementById('tapBtn').addEventListener('click', async () => {
+      if (userData.energy > 0) {
+        userData.airtelCoins += 1;
+        userData.energy -= 1;
+        updateUI();
+        await fetch(`${API_URL}/api/tap`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ telegramId, count: 1 })
+        });
+      }
+    });
+
+    // Navigation
+    function showTab(screenId, btn) {
+      document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+      document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
+      document.getElementById(screenId).classList.add('active');
+      btn.classList.add('active');
+      if (screenId === 'task-screen') loadTasks();
+    }
+
+    // Load Tasks
+    async function loadTasks() {
+      const res = await fetch(`${API_URL}/api/tasks`);
+      const data = await res.json();
+      const list = document.getElementById('taskList');
+      list.innerHTML = "";
+
+      data.tasks.forEach(task => {
+        const isDone = userData.completedTasks?.includes(task._id);
+        list.innerHTML += `
+          <div class="task-item">
+            <div>
+              <b>${task.title}</b><br>
+              <small style="color:#aaa;">+${task.rewardCoins} Airtel Coin | +$${task.rewardUsdt} USDT</small>
+            </div>
+            <button class="btn-action" ${isDone ? 'disabled style="background:#555;"' : ''} onclick="startTask('${task._id}', '${task.type}', '${task.link}', '${task.videoId}', ${task.duration})">
+              ${isDone ? 'Done' : 'Start'}
+            </button>
+          </div>
+        `;
+      });
+    }
+
+    function startTask(id, type, link, videoId, duration) {
+      activeTask = { id, duration };
+      if (type === 'youtube_watch') {
+        document.getElementById('video-card').style.display = 'block';
+        if (!ytPlayer) {
+          ytPlayer = new YT.Player('player', {
+            videoId: videoId,
+            playerVars: { 'controls': 0 },
+            events: { 'onStateChange': onPlayerStateChange }
+          });
+        } else {
+          ytPlayer.loadVideoById(videoId);
+        }
+      } else {
+        window.open(link, '_blank');
+        setTimeout(() => claimTaskReward(id, 0), 3000);
+      }
+    }
+
+    function onPlayerStateChange(event) {
+      if (event.data == YT.PlayerState.PLAYING) {
+        timerInterval = setInterval(() => {
+          watchSeconds++;
+          document.getElementById('timerText').innerText = `Watching: ${watchSeconds}s / ${activeTask.duration}s`;
+          if (watchSeconds >= activeTask.duration) {
+            clearInterval(timerInterval);
+            document.getElementById('claimBtn').style.display = 'inline-block';
+          }
+        }, 1000);
+      } else {
+        clearInterval(timerInterval);
+      }
+    }
+
+    async function claimVideoReward() {
+      await claimTaskReward(activeTask.id, watchSeconds);
+      document.getElementById('video-card').style.display = 'none';
+      document.getElementById('claimBtn').style.display = 'none';
+    }
+
+    async function claimTaskReward(taskId, watchedDuration) {
+      const res = await fetch(`${API_URL}/api/complete-task`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telegramId, taskId, watchedDuration })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert("Reward Credited!");
+        userData = data.user;
+        updateUI();
+        loadTasks();
+      } else {
+        alert(data.message);
+      }
+    }
+
+    async function saveWallet() {
+      const walletAddress = document.getElementById('walletInput').value;
+      await fetch(`${API_URL}/api/wallet`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telegramId, walletAddress })
+      });
+      alert("Wallet Saved!");
+    }
+
+    initUser();
+  </script>
+</body>
+</html>
